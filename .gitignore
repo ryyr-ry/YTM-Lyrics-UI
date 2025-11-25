@@ -1,0 +1,22 @@
+# macOS system files
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+_MACOSX/
+
+# Windows system files
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# IDE/Editor configs (VSCode, JetBrains etc)
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Node modules (もし将来npmを使う場合のため)
+node_modules/
+npm-debug.log
+yarn-error.log

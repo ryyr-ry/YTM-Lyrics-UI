@@ -1,0 +1,260 @@
+/*
+ * YouTube Music Immersive Player UI Styles
+ * Inspired by modern music application designs.
+ */
+
+/* --- Root Background Layer --- */
+#ytm-custom-bg {
+  position: fixed;
+  top: 0; left: 0;
+  width: 100vw; height: 100vh;
+  background-size: cover;
+  background-position: center center;
+  background-repeat: no-repeat;
+  z-index: 100;
+  transition: background-image 0.8s ease-in-out;
+  /* Immersive Blur Effect */
+  filter: blur(80px) brightness(0.4) saturate(200%);
+  transform: scale(1.1);
+  pointer-events: none;
+  display: none;
+}
+body.ytm-custom-layout #ytm-custom-bg {
+  display: block !important;
+}
+
+/* --- Main Content Wrapper --- */
+#ytm-custom-wrapper {
+  position: fixed;
+  top: 0; left: 0;
+  width: 100vw; height: 100vh;
+  display: none;
+  flex-direction: row;
+  justify-content: center;
+  align-items: center;
+  gap: 6vw;
+  padding: 80px 5vw 120px 5vw;
+  box-sizing: border-box;
+  z-index: 200;
+}
+body.ytm-custom-layout #ytm-custom-wrapper {
+  display: flex !important;
+}
+
+/* --- Hide Default YTM Elements --- */
+body.ytm-custom-layout,
+body.ytm-custom-layout html,
+body.ytm-custom-layout ytmusic-app-layout {
+  background: transparent !important;
+  --ytmusic-mini-guide-width: 0px !important;
+  --ytmusic-guide-width: 0px !important;
+}
+body.ytm-custom-layout #player-page,
+body.ytm-custom-layout #main-panel,
+body.ytm-custom-layout #browse-page {
+  opacity: 0 !important;
+  pointer-events: none !important;
+}
+body.ytm-custom-layout #player-bar-background,
+body.ytm-custom-layout .side-panel,
+body.ytm-custom-layout #secondary,
+body.ytm-custom-layout .song-media-controls,
+body.ytm-custom-layout ytmusic-av-toggle,
+body.ytm-custom-layout ytmusic-mini-guide-renderer,
+body.ytm-custom-layout ytmusic-guide-renderer,
+body.ytm-custom-layout #guide-wrapper,
+body.ytm-custom-layout [slot="guide"],
+body.ytm-custom-layout #mini-guide-background {
+  display: none !important;
+}
+
+/* --- Navigation Bar (Minimalist Glass) --- */
+body.ytm-custom-layout ytmusic-nav-bar {
+  display: flex !important;
+  position: fixed;
+  top: 0; left: 0;
+  width: 100%;
+  height: 64px;
+  z-index: 9999;
+  background: rgba(0, 0, 0, 0.2) !important;
+  --ytmusic-nav-bar-background: transparent !important;
+  backdrop-filter: blur(20px) !important;
+  -webkit-backdrop-filter: blur(20px) !important;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05) !important;
+  box-shadow: none !important;
+}
+body.ytm-custom-layout ytmusic-search-box {
+  background: rgba(255, 255, 255, 0.1) !important;
+  backdrop-filter: blur(10px);
+  border: 1px solid rgba(255, 255, 255, 0.1) !important;
+  border-radius: 8px !important;
+}
+body.ytm-custom-layout ytmusic-search-box input {
+  color: #fff !important;
+}
+
+/* --- Left Column: Artwork & Info --- */
+#ytm-custom-left-col {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  width: 450px;
+  flex-shrink: 0;
+}
+#ytm-artwork-container {
+  width: 100%;
+  aspect-ratio: 1 / 1;
+  margin-bottom: 40px;
+  border-radius: 20px;
+  box-shadow: 0 50px 100px -20px rgba(0, 0, 0, 0.7);
+  overflow: hidden;
+}
+#ytm-artwork-container img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+#ytm-custom-info-area {
+  width: 100%;
+  color: #fff;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  font-family: -apple-system, BlinkMacSystemFont, sans-serif;
+}
+#ytm-custom-title {
+  font-size: 36px;
+  font-weight: 800;
+  margin-bottom: 12px;
+  line-height: 1.1;
+  text-shadow: 0 4px 20px rgba(0, 0, 0, 0.4);
+}
+#ytm-custom-artist {
+  font-size: 24px;
+  font-weight: 500;
+  color: rgba(255, 255, 255, 0.8);
+}
+
+/* --- Right Column: Synced Lyrics --- */
+#my-lyrics-container {
+  display: flex;
+  flex-direction: column;
+  width: 550px;
+  height: 60vh;
+  overflow-y: auto;
+  scrollbar-width: none;
+  /* Fade mask for top/bottom */
+  mask-image: linear-gradient(to bottom, transparent 0%, black 20%, black 80%, transparent 100%);
+  -webkit-mask-image: linear-gradient(to bottom, transparent 0%, black 20%, black 80%, transparent 100%);
+}
+#my-lyrics-container::-webkit-scrollbar {
+  display: none;
+}
+.lyric-line {
+  font-family: -apple-system, BlinkMacSystemFont, sans-serif;
+  font-size: 40px;
+  font-weight: 800;
+  color: rgba(255, 255, 255, 0.3);
+  margin-bottom: 40px;
+  cursor: pointer;
+  transition: all 0.6s cubic-bezier(0.16, 1, 0.3, 1);
+  transform-origin: left center;
+  filter: blur(1.5px);
+  transform: scale(0.95);
+}
+.lyric-line.active {
+  color: #ffffff;
+  filter: blur(0);
+  transform: scale(1.05);
+  text-shadow: 0 0 40px rgba(255, 255, 255, 0.7);
+}
+
+/* --- Player Bar (Floating Glass Panel) --- */
+body.ytm-custom-layout ytmusic-player-bar {
+  display: grid !important;
+  grid-template-columns: 1.2fr 1fr 1.2fr !important;
+  position: fixed !important;
+  bottom: 40px !important;
+  left: 50% !important;
+  transform: translateX(-50%) !important;
+  width: 85% !important;
+  max-width: 900px !important;
+  height: 90px !important;
+  padding: 0 40px !important;
+  box-sizing: border-box;
+  /* Glass Background Effect */
+  background: rgba(30, 30, 30, 0.4) !important;
+  backdrop-filter: blur(60px) saturate(180%) !important;
+  -webkit-backdrop-filter: blur(60px) saturate(180%) !important;
+  border-radius: 30px !important;
+  border: 1px solid rgba(255, 255, 255, 0.15) !important;
+  box-shadow: 0 30px 80px rgba(0, 0, 0, 0.5) !important;
+  z-index: 300 !important;
+  visibility: visible !important;
+  opacity: 1 !important;
+  overflow: hidden !important;
+}
+
+/* Player Bar Internal Cleanup */
+body.ytm-custom-layout ytmusic-player-bar #background,
+body.ytm-custom-layout ytmusic-player-bar .background,
+body.ytm-custom-layout ytmusic-player-bar #container,
+body.ytm-custom-layout ytmusic-player-bar .container,
+body.ytm-custom-layout ytmusic-player-bar::before,
+body.ytm-custom-layout ytmusic-player-bar::after {
+  display: none !important;
+}
+
+/* Hide mini artwork */
+body.ytm-custom-layout ytmusic-player-bar .thumbnail-image-wrapper {
+  display: none !important;
+}
+
+/* Ensure info text is visible */
+body.ytm-custom-layout ytmusic-player-bar .content-info-wrapper {
+  display: flex !important;
+  flex-direction: column !important;
+  justify-content: center !important;
+  align-items: flex-start !important;
+  width: 100% !important;
+  margin: 0 !important;
+}
+body.ytm-custom-layout ytmusic-player-bar .title {
+  font-size: 16px !important;
+  font-weight: 700 !important;
+  color: #fff !important;
+  margin-bottom: 4px !important;
+}
+body.ytm-custom-layout ytmusic-player-bar .byline {
+  font-size: 13px !important;
+  color: rgba(255, 255, 255, 0.7) !important;
+}
+
+body.ytm-custom-layout .middle-controls {
+  justify-content: center !important;
+}
+body.ytm-custom-layout .right-controls {
+  justify-content: flex-end !important;
+}
+
+/* Toggle Button Style */
+#my-mode-toggle {
+  background: rgba(255, 255, 255, 0.1);
+  border: none;
+  color: #fff;
+  border-radius: 20px;
+  padding: 8px 18px;
+  font-weight: 600;
+  cursor: pointer;
+  margin-left: 15px;
+  font-size: 11px;
+  letter-spacing: 1.5px;
+}
+body.ytm-custom-layout #my-mode-toggle {
+  /* Active state */
+  background: #fff;
+  color: #000;
+  box-shadow: 0 0 20px rgba(255, 255, 255, 0.4);
+}
