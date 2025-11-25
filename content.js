@@ -1,290 +1,335 @@
 (function() {
-    // --- State & Constants ---
-    let currentSongKey = null;
-    let lyricsData = [];
-    let lyricLines = [];
-    let isModeEnabled = true;
-    let lastSongChangeTime = 0;
+    'use strict';
+
+    const CONFIG = {
+        apiBase: "https://lrclib.net/api/search",
+        scrollBehavior: "smooth",
+        activeClass: "active",
+        layoutClass: "ytm-custom-layout"
+    };
+
+    const DOM = {
+        video: null,
+        appLayout: null,
+        lyricsContainer: null,
+        customWrapper: null,
+        customBg: null,
+        title: null,
+        artist: null,
+        artwork: null,
+        toggleBtn: null
+    };
+
+    let state = {
+        isEnabled: true,
+        currentSongId: null,
+        lyrics: [],
+        lyricLines: [],
+        observer: null
+    };
+
+    // --- Utils ---
     
-    // --- DOM Elements Cache ---
-    let lyricsContainer = null;
-    let customWrapper = null;
-    let customBg = null;
-    let titleEl = null;
-    let artistEl = null;
-    let artworkContainer = null;
-    
-    const INIT_TIME = 2000; // 歌詞の更新が完了するまでの待機時間（ms）
-
-    // --- API & Parser ---
-    async function fetchLyrics(title, artist) {
-        try {
-            const cleanTitle = title.replace(/\s*[\(-\[].*?[\)-]].*/, "").trim();
-            const cleanArtist = artist.replace(/\s*[\(-\[].*?[\)-]].*/, "").trim();
-            const query = encodeURIComponent(`${cleanTitle} ${cleanArtist}`);
-            
-            const response = await fetch(`https://lrclib.net/api/search?q=${query}`);
-            const data = await response.json();
-
-            let match = data.find(item => {
-                if (!item.syncedLyrics) return false;
-                const itemArtist = item.artistName.toLowerCase();
-                const targetArtist = cleanArtist.toLowerCase();
-                const isArtistMatch = itemArtist.includes(targetArtist) || targetArtist.includes(itemArtist);
-                const itemTitle = item.trackName.toLowerCase();
-                const targetTitle = cleanTitle.toLowerCase();
-                const isTitleMatch = itemTitle.includes(targetTitle) || targetTitle.includes(itemTitle);
-                return isArtistMatch && isTitleMatch;
-            });
-
-            if (!match) match = data.find(item => item.syncedLyrics);
-            if (match) return parseLRC(match.syncedLyrics);
-            
-            return [{ time: 0, text: "Lyrics not found" }];
-        } catch (e) { return [{ time: 0, text: "" }]; }
+    // タイトルから余計な情報（Remasterなど）を削除するクリーナー
+    function cleanTitle(text) {
+        return text.replace(/\s*[\(\[-\{\<].*?[\)\]-\}\>].*/, "").trim();
     }
 
-    function parseLRC(lrc) {
-        const lines = lrc.split('\n');
+    // 時間変換 (00:00.00 -> seconds)
+    function parseTime(timeStr) {
+        const [min, sec] = timeStr.split(':');
+        return parseInt(min) * 60 + parseFloat(sec);
+    }
+
+    // Lrcパース
+    function parseLRC(lrcString) {
+        const lines = lrcString.split('\n');
         const result = [];
-        const timeRegex = /\[(\d{2})\:(\d{2})\.(\d{2,3})\]/;
-        lines.forEach(line => {
+        const timeRegex = /\[(\d{2}):(\d{2}\.\d{2,3})\]/;
+
+        for (const line of lines) {
             const match = line.match(timeRegex);
             if (match) {
-                const time = parseInt(match[1]) * 60 + parseInt(match[2]) + parseInt(match[3]) / 100; 
                 const text = line.replace(timeRegex, '').trim();
-                if (text) result.push({ time, text });
+                if (text) {
+                    result.push({
+                        time: parseTime(`${match[1]}:${match[2]}`),
+                        text: text
+                    });
+                }
             }
-        });
+        }
         return result;
     }
 
-    // --- Song Info ---
-    function getSongInfo() {
-        if ('mediaSession' in navigator && navigator.mediaSession.metadata) {
-            const meta = navigator.mediaSession.metadata;
-            return {
-                title: meta.title,
-                artist: meta.artist,
-                artwork: meta.artwork.length > 0 ? meta.artwork[meta.artwork.length - 1].src : null
-            };
+    // --- API Logic ---
+
+    async function fetchLyrics(title, artist) {
+        // 戦略1: そのまま検索
+        let lyrics = await tryFetch(title, artist);
+        
+        // 戦略2: タイトルをクリーニングして検索 (戦略1がダメだった場合)
+        if (!lyrics) {
+            const cleanT = cleanTitle(title);
+            const cleanA = cleanTitle(artist); // アーティスト名の (feat...) も消す
+            if (cleanT !== title || cleanA !== artist) {
+                lyrics = await tryFetch(cleanT, cleanA);
+            }
         }
-        const titleEl = document.querySelector('yt-formatted-string.title.style-scope.ytmusic-player-bar');
-        const subtitleEl = document.querySelector('.byline.style-scope.ytmusic-player-bar');
-        if (!titleEl || !subtitleEl) return null;
-        return { 
-            title: titleEl.textContent, 
-            artist: subtitleEl.textContent.split('•')[0].trim(),
-            artwork: null 
-        };
+
+        return lyrics || [{ time: 0, text: "Lyrics not found" }];
     }
 
-    // --- UI/Layout Management ---
+    async function tryFetch(title, artist) {
+        try {
+            const query = encodeURIComponent(`${title} ${artist}`);
+            const res = await fetch(`${CONFIG.apiBase}?q=${query}`);
+            const data = await res.json();
+            
+            // syncedLyricsがあるものを優先
+            const match = data.find(item => item.syncedLyrics);
+            return match ? parseLRC(match.syncedLyrics) : null;
+        } catch (e) {
+            console.error("Lyrics fetch failed:", e);
+            return null;
+        }
+    }
 
-    /**
-     * カスタムレイアウトの適用状態を判定し、DOMにクラスを付与/削除する
-     * @returns {boolean} カスタムモードが現在有効かどうか
-     */
-    function applyLayout() {
+    // --- DOM & UI Logic ---
+
+    function createUI() {
+        if (document.getElementById('ytm-custom-wrapper')) return;
+
+        // 背景
+        DOM.customBg = document.createElement('div');
+        DOM.customBg.id = 'ytm-custom-bg';
+
+        // メインラッパー
+        DOM.customWrapper = document.createElement('div');
+        DOM.customWrapper.id = 'ytm-custom-wrapper';
+
+        // 左カラム（アートワーク＆情報）
+        const leftCol = document.createElement('div');
+        leftCol.id = 'ytm-custom-left-col';
+        
+        DOM.artwork = document.createElement('div');
+        DOM.artwork.id = 'ytm-artwork-container';
+        
+        const infoArea = document.createElement('div');
+        infoArea.id = 'ytm-custom-info-area';
+        
+        DOM.title = document.createElement('div');
+        DOM.title.id = 'ytm-custom-title';
+        DOM.artist = document.createElement('div');
+        DOM.artist.id = 'ytm-custom-artist';
+
+        infoArea.append(DOM.title, DOM.artist);
+        leftCol.append(DOM.artwork, infoArea);
+
+        // 右カラム（歌詞）
+        DOM.lyricsContainer = document.createElement('div');
+        DOM.lyricsContainer.id = 'my-lyrics-container';
+
+        DOM.customWrapper.append(leftCol, DOM.lyricsContainer);
+        document.body.append(DOM.customBg, DOM.customWrapper);
+    }
+
+    function injectToggleButton() {
+        const rightControls = document.querySelector('.right-controls-buttons.style-scope.ytmusic-player-bar');
+        if (!rightControls || document.getElementById('my-mode-toggle')) return;
+
+        DOM.toggleBtn = document.createElement('button');
+        DOM.toggleBtn.id = 'my-mode-toggle';
+        DOM.toggleBtn.innerText = 'IMMERSION';
+        DOM.toggleBtn.onclick = toggleMode;
+        
+        updateToggleStyle();
+        rightControls.prepend(DOM.toggleBtn);
+    }
+
+    function toggleMode() {
+        state.isEnabled = !state.isEnabled;
+        updateLayoutVisibility();
+        updateToggleStyle();
+    }
+
+    function updateToggleStyle() {
+        if (!DOM.toggleBtn) return;
+        if (state.isEnabled) {
+            DOM.toggleBtn.classList.add('active');
+        } else {
+            DOM.toggleBtn.classList.remove('active');
+        }
+    }
+
+    function updateLayoutVisibility() {
         const layout = document.querySelector('ytmusic-app-layout');
         const isPlayerOpen = layout && layout.hasAttribute('player-page-open');
-        const btn = document.getElementById('my-mode-toggle');
+        const shouldShow = state.isEnabled && isPlayerOpen;
 
-        if (btn) {
-            btn.style.display = isPlayerOpen ? "inline-block" : "none";
-            updateButtonStyle(btn);
-        }
-
-        const shouldApply = isModeEnabled && isPlayerOpen;
-
-        document.body.classList.toggle('ytm-custom-layout', shouldApply);
-        if (customBg) customBg.style.display = shouldApply ? 'block' : 'none';
-        if (customWrapper) customWrapper.style.display = shouldApply ? 'flex' : 'none';
-
-        return shouldApply;
-    }
-
-    function setupLayout() {
-        if (!document.getElementById('ytm-custom-bg')) {
-            customBg = document.createElement('div');
-            customBg.id = 'ytm-custom-bg';
-            document.body.appendChild(customBg);
-        }
-        if (!document.getElementById('ytm-custom-wrapper')) {
-            customWrapper = document.createElement('div');
-            customWrapper.id = 'ytm-custom-wrapper';
-            document.body.appendChild(customWrapper);
-            
-            const customLeftCol = document.createElement('div');
-            customLeftCol.id = 'ytm-custom-left-col';
-            artworkContainer = document.createElement('div');
-            artworkContainer.id = 'ytm-artwork-container';
-            const infoArea = document.createElement('div');
-            infoArea.id = 'ytm-custom-info-area';
-            titleEl = document.createElement('div');
-            titleEl.id = 'ytm-custom-title';
-            artistEl = document.createElement('div');
-            artistEl.id = 'ytm-custom-artist';
-            
-            infoArea.appendChild(titleEl);
-            infoArea.appendChild(artistEl);
-            customLeftCol.appendChild(artworkContainer);
-            customLeftCol.appendChild(infoArea);
-            
-            lyricsContainer = document.createElement('div');
-            lyricsContainer.id = 'my-lyrics-container';
-            
-            customWrapper.appendChild(customLeftCol);
-            customWrapper.appendChild(lyricsContainer);
-        } else {
-            // Re-cache elements
-            customWrapper = document.getElementById('ytm-custom-wrapper');
-            lyricsContainer = document.getElementById('my-lyrics-container');
-            titleEl = document.getElementById('ytm-custom-title');
-            artistEl = document.getElementById('ytm-custom-artist');
-            artworkContainer = document.getElementById('ytm-artwork-container');
-            customBg = document.getElementById('ytm-custom-bg');
+        document.body.classList.toggle(CONFIG.layoutClass, shouldShow);
+        
+        // ボタンの表示制御
+        if (DOM.toggleBtn) {
+            DOM.toggleBtn.style.display = isPlayerOpen ? "inline-block" : "none";
         }
     }
 
-    function updateLyricsUI(data) {
-        if (!lyricsContainer) return;
-        lyricsContainer.innerHTML = '';
-        lyricsContainer.scrollTo(0, 0);
-
-        data.forEach(line => {
+    function renderLyrics(data) {
+        if (!DOM.lyricsContainer) return;
+        DOM.lyricsContainer.innerHTML = '';
+        
+        const frag = document.createDocumentFragment();
+        data.forEach((line, index) => {
             const p = document.createElement('div');
             p.className = 'lyric-line';
-            p.innerText = line.text;
-            p.onclick = () => { 
-                const v = document.querySelector('video'); 
-                if(v) v.currentTime = line.time; 
+            p.textContent = line.text;
+            p.dataset.index = index;
+            p.onclick = () => {
+                const video = document.querySelector('video');
+                if (video) video.currentTime = line.time;
             };
-            lyricsContainer.appendChild(p);
+            frag.appendChild(p);
         });
-        lyricLines = lyricsContainer.querySelectorAll('.lyric-line');
+        DOM.lyricsContainer.appendChild(frag);
+        state.lyricLines = Array.from(DOM.lyricsContainer.children);
     }
 
-    function setupToggleButton() {
-        const rightControls = document.querySelector('.right-controls-buttons.style-scope.ytmusic-player-bar');
-        if (!rightControls) return;
+    // --- Core Logic ---
 
-        let btn = document.getElementById('my-mode-toggle');
+    function handleTimeUpdate() {
+        if (!document.body.classList.contains(CONFIG.layoutClass)) return;
+        if (!state.lyrics.length) return;
 
-        if (!btn) {
-            btn = document.createElement('button');
-            btn.id = 'my-mode-toggle';
-            btn.innerText = 'IMMERSION';
-            btn.onclick = () => {
-                isModeEnabled = !isModeEnabled;
-                applyLayout();
-            };
-            rightControls.prepend(btn);
-        }
-    }
-
-    function updateButtonStyle(btn) {
-        if (isModeEnabled) {
-            btn.style.cssText = `
-                opacity: 1; 
-                box-shadow: 0 0 10px rgba(255,255,255,0.5); 
-                background: #fff; 
-                color: #000; 
-                font-weight: bold;
-            `;
-        } else {
-            btn.style.cssText = `
-                opacity: 0.6; 
-                box-shadow: none; 
-                background: rgba(255,255,255,0.1); 
-                color: #fff; 
-                font-weight: normal;
-            `;
-        }
-    }
-
-    // --- Main Logic ---
-
-    function handleTimeUpdate(video) {
-        if (!document.body.classList.contains('ytm-custom-layout')) return;
-        if (!lyricsData || lyricsData.length === 0) return;
-
-        const currentTime = video.currentTime;
-
-        if (Date.now() - lastSongChangeTime < INIT_TIME) return; 
-
-        let activeIndex = -1;
-        for (let i = 0; i < lyricsData.length; i++) {
-            if (currentTime >= lyricsData[i].time) activeIndex = i; else break;
-        }
-        
-        if (activeIndex !== -1 && lyricLines[activeIndex]) {
-            const activeLine = lyricLines[activeIndex];
-            if (!activeLine.classList.contains('active')) {
-                lyricLines.forEach(l => l.classList.remove('active'));
-                activeLine.classList.add('active');
-                const behavior = (activeIndex === 0) ? 'auto' : 'smooth';
-                activeLine.scrollIntoView({ behavior: behavior, block: "center" });
-            }
-        }
-    }
-
-    async function checkSongAndFetch() {
         const video = document.querySelector('video');
         if (!video) return;
-        
-        setupLayout();
-        const isActive = applyLayout();
-        if (!isActive) return;
 
-        const info = getSongInfo();
-        if (!info || !info.title) return;
-        
-        const songId = `${info.title}///${info.artist}`;
-        
-        if (currentSongKey !== songId) {
-            currentSongKey = songId;
-            lastSongChangeTime = Date.now();
+        const currentTime = video.currentTime;
+        let activeIndex = -1;
 
-            if(titleEl) titleEl.innerText = info.title;
-            if(artistEl) artistEl.innerText = info.artist;
-            if(info.artwork) {
-                if(artworkContainer) artworkContainer.innerHTML = `<img src="${info.artwork}" crossorigin="anonymous">`;
-                if(customBg) customBg.style.backgroundImage = `url(${info.artwork})`;
-            }
-            
-            lyricsData = [];
-            if(lyricsContainer) {
-                lyricsContainer.innerHTML = '<div class="lyric-line" style="opacity:0.5">Loading...</div>';
-                lyricsContainer.scrollTo(0, 0);
-            }
-            
-            const fetchedData = await fetchLyrics(info.title, info.artist);
-            
-            // 競合状態を防ぐため、fetch完了後に再度IDを確認
-            if (currentSongKey === songId) {
-                lyricsData = fetchedData;
-                updateLyricsUI(lyricsData);
+        // バイナリサーチまたは単純ループで現在の行を探す
+        // (行数が少ないので単純ループで十分かつ高速)
+        for (let i = 0; i < state.lyrics.length; i++) {
+            if (currentTime >= state.lyrics[i].time) {
+                activeIndex = i;
+            } else {
+                break;
             }
         }
-        
-        // timeupdateリスナーのセットアップ
-        if (!video.dataset.hasCustomListener) {
-            video.dataset.hasCustomListener = "true";
-            video.addEventListener('timeupdate', () => handleTimeUpdate(video));
+
+        if (activeIndex !== -1 && state.lyricLines[activeIndex]) {
+            const activeLine = state.lyricLines[activeIndex];
+            
+            // 既にActiveなら何もしない（DOM操作削減）
+            if (activeLine.classList.contains(CONFIG.activeClass)) return;
+
+            state.lyricLines.forEach(l => l.classList.remove(CONFIG.activeClass));
+            activeLine.classList.add(CONFIG.activeClass);
+
+            activeLine.scrollIntoView({
+                behavior: CONFIG.scrollBehavior,
+                block: "center"
+            });
         }
     }
+
+    async function onSongChanged() {
+        const titleEl = document.querySelector('yt-formatted-string.title.style-scope.ytmusic-player-bar');
+        const subtitleEl = document.querySelector('.byline.style-scope.ytmusic-player-bar');
+        
+        if (!titleEl || !subtitleEl) return;
+
+        const title = titleEl.textContent;
+        // アーティスト情報は "Artist • Album • Year" のようになっていることが多い
+        const artist = subtitleEl.textContent.split('•')[0].trim();
+        const songId = `${title}|||${artist}`;
+
+        // 同じ曲ならスキップ
+        if (state.currentSongId === songId) return;
+        state.currentSongId = songId;
+
+        // UI更新 (Loading状態)
+        if(DOM.title) DOM.title.textContent = title;
+        if(DOM.artist) DOM.artist.textContent = artist;
+        if(DOM.lyricsContainer) DOM.lyricsContainer.innerHTML = '<div class="lyric-line">Loading...</div>';
+
+        // アートワーク取得 (MediaSession APIの方が高画質な場合が多い)
+        let artworkUrl = "";
+        if ('mediaSession' in navigator && navigator.mediaSession.metadata?.artwork?.length) {
+            const arts = navigator.mediaSession.metadata.artwork;
+            artworkUrl = arts[arts.length - 1].src;
+        } else {
+            const img = document.querySelector('.thumbnail-image-wrapper img');
+            if (img) artworkUrl = img.src;
+        }
+
+        if (artworkUrl) {
+            if (DOM.artwork) DOM.artwork.innerHTML = `<img src="${artworkUrl}" crossorigin="anonymous">`;
+            if (DOM.customBg) DOM.customBg.style.backgroundImage = `url(${artworkUrl})`;
+        }
+
+        // 歌詞取得
+        const lyrics = await fetchLyrics(title, artist);
+        // 通信中に曲が変わっていたら反映しない
+        if (state.currentSongId === songId) {
+            state.lyrics = lyrics;
+            renderLyrics(lyrics);
+        }
+    }
+
+    // --- Initialization ---
 
     function init() {
-        // トグルボタンとレイアウト状態の監視 (200ms間隔で即応性重視)
-        setInterval(() => {
-            setupToggleButton();
-            applyLayout();
-        }, 200);
+        createUI();
+        injectToggleButton();
 
-        // 曲情報の監視と歌詞のフェッチ (1000ms間隔)
-        setInterval(checkSongAndFetch, 1000);
+        // 1. レイアウト監視 (MutationObserver)
+        // ytmusic-app-layout の属性変化(player-page-open)を監視
+        const appLayout = document.querySelector('ytmusic-app-layout');
+        if (appLayout) {
+            const layoutObserver = new MutationObserver(() => {
+                injectToggleButton(); // 画面遷移でボタンが消えることがあるため再注入
+                updateLayoutVisibility();
+            });
+            layoutObserver.observe(appLayout, { attributes: true, attributeFilter: ['player-page-open'] });
+        }
+
+        // 2. 曲変更監視 (MutationObserver)
+        // プレイヤーバーのテキスト変更を監視
+        const playerBar = document.querySelector('ytmusic-player-bar');
+        if (playerBar) {
+            const songObserver = new MutationObserver(() => {
+                onSongChanged();
+                injectToggleButton();
+            });
+            songObserver.observe(playerBar, { subtree: true, characterData: true, childList: true });
+        }
+
+        // 3. 再生時間監視
+        // videoタグは動的に生成されることは少ないが、念の為存在確認
+        const setupVideoListener = () => {
+            const video = document.querySelector('video');
+            if (video && !video.dataset.hasLrcListener) {
+                video.addEventListener('timeupdate', () => {
+                    // requestAnimationFrameで描画タイミングを最適化
+                    requestAnimationFrame(handleTimeUpdate);
+                });
+                video.dataset.hasLrcListener = "true";
+            }
+        };
+        // videoが見つかるまで、または再生成に備えて定期チェック(ここだけInterval使うが軽量)
+        setInterval(setupVideoListener, 2000);
+
+        // 初回実行
+        onSongChanged();
+        updateLayoutVisibility();
     }
 
-    init();
+    // ページのロード完了を待つ
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', init);
+    } else {
+        init();
+    }
+
 })();
