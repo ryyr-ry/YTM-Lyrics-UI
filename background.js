@@ -1,10 +1,9 @@
 /**
  * background.js
  * 
- * v5.7 - Robust Search & Scoring Logic
- * - Fixed a critical bug in `cleanText` that removed valid parts of song titles.
- * - Fixed a bug in `tryApiSearch` that generated an incorrect 'q' parameter.
- * - Made the scoring algorithm stricter regarding duration differences.
+ * v5.8 - Parallel Execution
+ * - Refactored fetchLyricsHandler to execute API requests in parallel.
+ * - Prioritized results: GET(Album) > GET(NoAlbum) > Search(Raw) > Search(Clean).
  */
 
 const CONFIG = {
@@ -76,23 +75,15 @@ async function fetchAndCache(title, artist, album, lang, duration) {
 
 // --- ユーティリティ & スコアリング ---
 
-/**
- * API送信前のパラメータから不要な空白文字を除去する
- */
 function sanitize(text) {
     if (!text) return "";
     return text.replace(/[\s　]+/g, ' ').trim();
 }
 
-/**
- * 曲名やアーティスト名から検索ノイズとなる補足情報を除去する
- */
 function cleanText(text) {
     if (!text) return "";
     return text
-        // カッコで囲まれた部分を削除 (e.g., " (Official Video)", " [Live]")
         .replace(/\s*[\(\[-\{\<].*?[\)\]-\}\>].*/, "") 
-        // YouTube特有の定型句を削除
         .replace(/official\s+video|music\s+video|official\s+audio|lyric\s+video|hq|mv|pv/gi, "")
         .trim();
 }
@@ -129,10 +120,6 @@ function checkArtistMatch(artistA, artistB) {
     return 0;
 }
 
-/**
- * 候補のスコアリング
- * 再生時間の大幅なズレに対するペナルティを強化
- */
 function calculateScore(item, qTitle, qArtist, userLang, targetDuration) {
     let score = 0;
     const iTitle = normalize(item.trackName);
@@ -146,7 +133,7 @@ function calculateScore(item, qTitle, qArtist, userLang, targetDuration) {
         const diff = Math.abs(item.duration - targetDuration);
         if (diff <= 2) score += 50;
         else if (diff <= 5) score += 20;
-        else if (diff > 10) return -1000; // 10秒以上ズレていたら即却下
+        else if (diff > 10) return -1000;
         else score -= 50; 
     }
     
@@ -164,13 +151,11 @@ function calculateScore(item, qTitle, qArtist, userLang, targetDuration) {
     return score;
 }
 
-// --- 歌詞取得ロジック ---
-async function logResponse(response) {
-    const clonedResponse = response.clone();
-    const responseBody = await clonedResponse.text();
-    console.log(`[BG] Response Status: ${clonedResponse.status}`);
-    console.log('[BG] Response Headers:', Object.fromEntries(clonedResponse.headers.entries()));
-    console.log('[BG] Response Body:', responseBody);
+// --- 歌詞取得ロジック (通信部) ---
+async function logResponse(response, label) {
+    // デバッグが必要な場合はコメントアウトを解除
+    // const cloned = response.clone();
+    // console.log(`[BG][${label}] Status: ${cloned.status}`);
     return response;
 }
 
@@ -186,9 +171,8 @@ async function tryApiGet(track_name, artist_name, album_name, duration, includeA
             params.append('album_name', album_name);
         }
         const url = `${CONFIG.apiGetBase}?${params.toString()}`;
-        console.log(`[BG] Attempting GET /api/get with URL: ${url}`);
         let res = await fetch(url, { headers: { 'User-Agent': CONFIG.userAgent, 'Lrclib-Client': CONFIG.appName } });
-        res = await logResponse(res);
+        // res = await logResponse(res, `GET:Album=${includeAlbum}`);
         if (res.status === 200) {
             const data = await res.json();
             return parseLRC(data.syncedLyrics);
@@ -202,15 +186,12 @@ async function tryApiGet(track_name, artist_name, album_name, duration, includeA
 
 async function tryApiSearch(title, artist, album, lang, duration) {
     try {
-        // 'q'パラメータ用に、スペースで連結した検索文字列を作成
         const query = `${title} ${artist}`.trim();
         const params = new URLSearchParams({ q: query });
-        
         const url = `${CONFIG.apiSearchBase}?${params.toString()}`;
-        console.log(`[BG] Attempting GET /api/search with URL: ${url}`);
-
+        
         let res = await fetch(url, { headers: { 'User-Agent': CONFIG.userAgent, 'Lrclib-Client': CONFIG.appName } });
-        res = await logResponse(res);
+        // res = await logResponse(res, "SEARCH");
         if (!res.ok) throw new Error(`Status: ${res.status}`);
 
         const data = await res.json();
@@ -226,7 +207,6 @@ async function tryApiSearch(title, artist, album, lang, duration) {
         scoredCandidates.sort((a, b) => b.score - a.score);
         const bestMatch = scoredCandidates[0];
 
-        // しきい値を70に引き上げ、より信頼性の高いマッチのみ採用
         if (bestMatch && bestMatch.score > 70) {
             return parseLRC(bestMatch.item.syncedLyrics);
         }
@@ -237,29 +217,58 @@ async function tryApiSearch(title, artist, album, lang, duration) {
     }
 }
 
+/**
+ * 歌詞取得のメインハンドラ (並列処理版)
+ */
 async function fetchLyricsHandler(title, artist, album, lang, duration) {
-    // APIに渡す前にパラメータをサニタイズ
     const sTitle = sanitize(title);
     const sArtist = sanitize(artist);
     const sAlbum = sanitize(album);
-    let lyrics;
 
-    lyrics = await tryApiGet(sTitle, sArtist, sAlbum, duration, true);
-    if (lyrics) return lyrics;
+    // 実行するタスクリストを優先度順に作成
+    const tasks = [
+        // Priority 1: アルバム名込みの厳密なGET (最も精度が高い)
+        { 
+            fn: () => tryApiGet(sTitle, sArtist, sAlbum, duration, true),
+            name: "GET_WITH_ALBUM" 
+        },
+        // Priority 2: アルバム名なしの厳密なGET (曲・アーティストは合っている)
+        { 
+            fn: () => tryApiGet(sTitle, sArtist, sAlbum, duration, false),
+            name: "GET_NO_ALBUM"
+        },
+        // Priority 3: 標準メタデータでの検索 (表記ゆれに対応)
+        { 
+            fn: () => tryApiSearch(sTitle, sArtist, sAlbum, lang, duration),
+            name: "SEARCH_RAW"
+        }
+    ];
 
-    lyrics = await tryApiGet(sTitle, sArtist, sAlbum, duration, false);
-    if (lyrics) return lyrics;
-    
-    lyrics = await tryApiSearch(sTitle, sArtist, sAlbum, lang, duration);
-    if (lyrics) return lyrics;
-
-    // 最終手段: cleanTextでさらに加工して再検索
+    // Priority 4: クリーンアップ後のテキストでの検索 (ノイズ除去)
+    // 元のタイトル/アーティストと変わる場合のみ追加
     const cTitle = cleanText(title);
     const cArtist = cleanText(artist);
     if (cTitle !== title || cArtist !== artist) {
-        lyrics = await tryApiSearch(cTitle, cArtist, sAlbum, lang, duration);
-        if (lyrics) return lyrics;
+        tasks.push({
+            fn: () => tryApiSearch(cTitle, cArtist, sAlbum, lang, duration),
+            name: "SEARCH_CLEAN"
+        });
     }
 
-    return lyrics || [{ time: 0, text: "Lyrics not found" }];
+    // 全タスクを並列実行
+    // Promise.allSettled は全てのPromiseが完了(成功or失敗)するまで待つ
+    // これにより、最も遅いリクエストに時間は合わせられるが、各リクエストは同時に走る
+    const promises = tasks.map(t => t.fn());
+    const results = await Promise.allSettled(promises);
+
+    // 結果を「優先度順」に走査して、最初に成功(null以外)したものを採用する
+    for (let i = 0; i < results.length; i++) {
+        const result = results[i];
+        if (result.status === 'fulfilled' && result.value) {
+            // console.log(`[BG] Selected Strategy: ${tasks[i].name}`); // デバッグ用
+            return result.value;
+        }
+    }
+
+    return [{ time: 0, text: "Lyrics not found" }];
 }
