@@ -1,259 +1,204 @@
 /*
  * YouTube Music Immersive Player UI Styles
- * v1.0 - Refactored with CSS Variables
+ *
+ * v4.6 - Final Polish
+ * - Centered artwork on mobile.
+ * - Limited lyrics click area to text only.
+ * - Hid scrollbar on PC again.
  */
 
-:root {
-  --ytm-mod-bg-blur: blur(80px);
-  --ytm-mod-bg-darken: brightness(0.4) saturate(200%);
-  --ytm-mod-text-primary: #ffffff;
-  --ytm-mod-text-secondary: rgba(255, 255, 255, 0.7);
-  --ytm-mod-text-inactive: rgba(255, 255, 255, 0.3);
-  --ytm-mod-glass-bg: rgba(30, 30, 30, 0.4);
-  --ytm-mod-glass-border: 1px solid rgba(255, 255, 255, 0.1);
-  --ytm-mod-nav-height: 64px;
-  --ytm-mod-player-height: 90px;
-}
-
-/* --- Root Background Layer --- */
-#ytm-custom-bg {
-  position: fixed;
-  inset: 0;
-  width: 100vw; height: 100vh;
-  background-size: cover;
-  background-position: center;
-  background-repeat: no-repeat;
-  z-index: 50; /* 必要以上に大きくしない */
-  transition: background-image 0.8s ease-in-out;
-  filter: var(--ytm-mod-bg-blur) var(--ytm-mod-bg-darken);
-  transform: scale(1.1); /* ブラー端の滲み防止 */
-  pointer-events: none;
-  display: none;
-}
-body.ytm-custom-layout #ytm-custom-bg {
-  display: block !important;
-}
-
-/* --- Main Content Wrapper --- */
+/* --- 1. 共通: 初期化 & トランジション --- */
+#ytm-custom-bg,
 #ytm-custom-wrapper {
-  position: fixed;
-  inset: 0;
   display: none;
-  flex-direction: row;
-  justify-content: center;
-  align-items: center;
-  gap: 5vw;
-  padding: 80px 5vw 120px 5vw;
-  box-sizing: border-box;
-  z-index: 100;
+  opacity: 0;
+  pointer-events: none;
 }
+body.ytm-custom-layout #ytm-custom-bg,
 body.ytm-custom-layout #ytm-custom-wrapper {
   display: flex !important;
+  opacity: 1 !important;
+  pointer-events: auto !important;
+  transition: opacity 0.5s ease-in-out;
 }
 
-/* --- YTM Default Elements Hiding --- */
-body.ytm-custom-layout ytmusic-app-layout > [slot="player-bar"],
-body.ytm-custom-layout #player-bar-background,
-body.ytm-custom-layout .side-panel,
-body.ytm-custom-layout #secondary,
-body.ytm-custom-layout .song-media-controls,
-body.ytm-custom-layout ytmusic-av-toggle,
+/* --- 2. 共通: 既存UIの非表示 --- */
+
+body.ytm-custom-layout ytmusic-nav-bar,
+body.ytm-custom-layout #mini-guide-background,
 body.ytm-custom-layout ytmusic-mini-guide-renderer,
 body.ytm-custom-layout ytmusic-guide-renderer,
-body.ytm-custom-layout #guide-wrapper,
-body.ytm-custom-layout #mini-guide-background {
+body.ytm-custom-layout .side-panel,
+body.ytm-custom-layout #browse-page,
+body.ytm-custom-layout #player-page,
+body.ytm-custom-layout #main-panel,
+body.ytm-custom-layout yt-notification-action-renderer {
   display: none !important;
 }
-
-/* Transparent Backgrounds */
 body.ytm-custom-layout,
 body.ytm-custom-layout html,
 body.ytm-custom-layout ytmusic-app-layout {
   background: transparent !important;
+  overflow: hidden !important;
+  --ytmusic-nav-bar-height: 0px !important;
+  --ytmusic-guide-width: 0px !important;
+  --ytmusic-mini-guide-width: 0px !important;
 }
-/* Main Content Hide (use opacity to keep audio processing active if needed) */
-body.ytm-custom-layout #player-page,
-body.ytm-custom-layout #main-panel,
-body.ytm-custom-layout #browse-page {
-  opacity: 0 !important;
-  pointer-events: none !important;
+/* --- 3. 共通: メインビジュアル要素 --- */
+body.ytm-custom-layout #ytm-custom-bg {
+  position: fixed; inset: 0;
+  background-size: cover; background-position: center; z-index: 100;
+  filter: blur(60px) brightness(0.4) saturate(1.5);
+  transform: scale(1.1);
 }
-
-/* --- Navigation Bar (Glass) --- */
-body.ytm-custom-layout ytmusic-nav-bar {
-  background: rgba(0, 0, 0, 0.2) !important;
-  backdrop-filter: blur(20px);
-  border-bottom: var(--ytm-mod-glass-border) !important;
-  box-shadow: none !important;
+body.ytm-custom-layout #ytm-artwork-container {
+  aspect-ratio: 1 / 1; border-radius: 16px;
+  box-shadow: 0 30px 80px rgba(0,0,0,0.6);
+  margin-bottom: 30px; overflow: hidden;
 }
-
-/* --- Left Column: Artwork & Info --- */
-#ytm-custom-left-col {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  text-align: center;
-  width: 40%;
-  max-width: 500px;
-  min-width: 300px;
-}
-#ytm-artwork-container {
-  width: 100%;
-  aspect-ratio: 1 / 1;
-  margin-bottom: 40px;
-  border-radius: 12px;
-  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.5);
-  overflow: hidden;
-}
-#ytm-artwork-container img {
+body.ytm-custom-layout #ytm-artwork-container img {
   width: 100%; height: 100%; object-fit: cover;
 }
-#ytm-custom-title {
-  font-size: clamp(24px, 4vw, 36px);
-  font-weight: 800;
-  margin-bottom: 12px;
-  color: var(--ytm-mod-text-primary);
-  text-shadow: 0 2px 10px rgba(0,0,0,0.3);
-}
-#ytm-custom-artist {
-  font-size: clamp(18px, 2.5vw, 24px);
-  font-weight: 500;
-  color: var(--ytm-mod-text-secondary);
-}
+body.ytm-custom-layout #ytm-custom-info-area { width: 100%; text-align: center; }
+body.ytm-custom-layout #ytm-custom-title { font-family: -apple-system, sans-serif; font-weight: 800; color: #fff; margin-bottom: 10px; line-height: 1.2; text-shadow: 0 4px 12px rgba(0,0,0,0.5); }
+body.ytm-custom-layout #ytm-custom-artist { font-family: -apple-system, sans-serif; font-weight: 500; color: rgba(255,255,255,0.8); }
 
-/* --- Right Column: Lyrics --- */
-#my-lyrics-container {
-  display: flex;
-  flex-direction: column;
-  width: 50%;
-  max-width: 600px;
-  height: 65vh;
-  overflow-y: auto;
-  scrollbar-width: none; /* Firefox */
-  mask-image: linear-gradient(to bottom, transparent 0%, black 15%, black 85%, transparent 100%);
-  -webkit-mask-image: linear-gradient(to bottom, transparent 0%, black 15%, black 85%, transparent 100%);
-}
-#my-lyrics-container::-webkit-scrollbar { display: none; }
-
-.lyric-line {
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-  font-size: clamp(24px, 3.5vw, 38px);
-  font-weight: 700;
-  color: var(--ytm-mod-text-inactive);
-  margin-bottom: 30px;
+/* 共通: 歌詞行のスタイル */
+body.ytm-custom-layout .lyric-line {
+  font-family: -apple-system, sans-serif; font-weight: 700;
+  color: rgba(255,255,255,0.25); margin-bottom: 28px;
+  transition: all 0.3s ease; padding: 4px 12px; border-radius: 8px;
+  width: fit-content; /* テキストの幅に合わせる */
   cursor: pointer;
-  transition: all 0.4s cubic-bezier(0.2, 0.8, 0.2, 1);
-  transform-origin: left center;
-  filter: blur(1px);
 }
-.lyric-line:hover {
-  color: var(--ytm-mod-text-secondary);
-  filter: blur(0);
-}
-.lyric-line.active {
-  color: var(--ytm-mod-text-primary);
-  filter: blur(0);
-  transform: scale(1.05) translateX(10px);
-  text-shadow: 0 0 20px rgba(255, 255, 255, 0.4);
-}
+body.ytm-custom-layout .lyric-line:hover { color: rgba(255,255,255,0.9); transform: scale(1.02); }
+body.ytm-custom-layout .lyric-line.active { color: #fff; text-shadow: 0 0 30px rgba(255,255,255,0.6); }
 
-/* --- Player Bar (Floating Glass) --- */
+/* --- 4. 共通: プレイヤーバー --- */
 body.ytm-custom-layout ytmusic-player-bar {
-  visibility: visible !important;
-  position: fixed !important;
-  bottom: 30px !important;
-  left: 50% !important;
-  transform: translateX(-50%) !important;
-  width: 90% !important;
-  max-width: 800px !important;
-  height: var(--ytm-mod-player-height) !important;
-  padding: 0 30px !important;
-  
-  background: var(--ytm-mod-glass-bg) !important;
-  backdrop-filter: blur(40px) saturate(180%) !important;
-  border-radius: 24px !important;
-  border: var(--ytm-mod-glass-border) !important;
-  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.4) !important;
-  
-  display: grid !important;
-  grid-template-columns: 1fr auto 1fr !important;
-  align-items: center !important;
-  z-index: 200 !important;
+  z-index: 300 !important;
+  background: transparent !important;
+  backdrop-filter: blur(30px) !important;
+  background-color: rgba(30, 30, 30, 0.4) !important;
+  border-top: 1px solid rgba(255, 255, 255, 0.1) !important;
+  box-shadow: 0 -10px 40px rgba(0,0,0,0.4) !important;
 }
-
-/* Internal Player Bar Cleanup */
-body.ytm-custom-layout ytmusic-player-bar .thumbnail-image-wrapper,
-body.ytm-custom-layout ytmusic-player-bar .song-media-controls {
+body.ytm-custom-layout.ytm-is-desktop-bar ytmusic-player-bar .middle-controls .content-info-wrapper,
+body.ytm-custom-layout.ytm-is-desktop-bar ytmusic-player-bar .middle-controls .thumbnail-image-wrapper {
   display: none !important;
 }
-/* Re-enable info */
-body.ytm-custom-layout ytmusic-player-bar .content-info-wrapper {
-  display: flex !important;
-  flex-direction: column !important;
-  margin: 0 !important;
-  width: 100% !important;
-}
-body.ytm-custom-layout ytmusic-player-bar .title {
-  color: #fff !important;
-  font-size: 15px !important;
-}
-body.ytm-custom-layout ytmusic-player-bar .byline {
-  color: rgba(255,255,255,0.7) !important;
-  font-size: 12px !important;
+
+/* ==========================================================================
+   PCレイアウト (幅が951px以上)
+   ========================================================================== */
+@media (min-width: 951px) {
+  /* ラッパー: 横並び */
+  body.ytm-custom-layout #ytm-custom-wrapper {
+    position: fixed; inset: 0; 
+    flex-direction: row;
+    justify-content: center; align-items: center; gap: 6vw;
+    padding: 40px 5vw 120px 5vw;
+    box-sizing: border-box; z-index: 200;
+  }
+  
+  /* アートワーク */
+  body.ytm-custom-layout #ytm-custom-left-col { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; max-width: 500px; height: 100%; }
+  body.ytm-custom-layout #ytm-artwork-container { width: 100%; max-width: 480px; }
+  body.ytm-custom-layout #ytm-custom-title { font-size: clamp(24px, 3vw, 36px); }
+  body.ytm-custom-layout #ytm-custom-artist { font-size: clamp(18px, 2vw, 24px); }
+
+  /* 歌詞: 内部でスクロール & 左右をフェード */
+  body.ytm-custom-layout #my-lyrics-container {
+    flex: 1; display: flex; flex-direction: column; max-width: 650px;
+    height: 100%;
+    overflow-y: auto;
+    overflow-x: hidden !important;
+    mask-image: 
+      linear-gradient(to right, transparent 0%, black 10%, black 90%, transparent 100%),
+      linear-gradient(to bottom, transparent 0%, black 15%, black 85%, transparent 100%);
+    -webkit-mask-image: 
+      linear-gradient(to right, transparent 0%, black 10%, black 90%, transparent 100%),
+      linear-gradient(to bottom, transparent 0%, black 15%, black 85%, transparent 100%);
+    padding: 20px 40px;
+    box-sizing: border-box; /* パディングを含めて幅を計算 */
+    scrollbar-width: none; /* Firefox */
+  }
+  body.ytm-custom-layout #my-lyrics-container::-webkit-scrollbar { display: none; }
+  
+  /* 歌詞行のスタイル */
+  body.ytm-custom-layout .lyric-line { font-size: clamp(24px, 2.5vw, 34px); }
+  body.ytm-custom-layout .lyric-line.active { transform: scale(1.05) translateX(10px); }
+  body.ytm-custom-layout .lyric-line.active:hover { transform: scale(1.05) translateX(10px); }
 }
 
-/* Controls Alignment */
-body.ytm-custom-layout .middle-controls {
-  justify-content: center !important;
-}
-body.ytm-custom-layout .right-controls {
-  justify-content: flex-end !important;
-}
 
-/* --- Toggle Button --- */
-#my-mode-toggle {
-  background: rgba(255, 255, 255, 0.1);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  color: #fff;
-  border-radius: 100px;
-  padding: 6px 16px;
-  font-size: 12px;
-  font-weight: 600;
-  letter-spacing: 1px;
-  cursor: pointer;
-  margin-left: 10px;
-  transition: all 0.3s ease;
-}
-#my-mode-toggle:hover {
-  background: rgba(255, 255, 255, 0.2);
-}
-#my-mode-toggle.active {
-  background: #fff;
-  color: #000;
-  box-shadow: 0 0 15px rgba(255,255,255,0.4);
-}
-
-/* --- Responsive Adjustments --- */
-@media (max-width: 800px) {
-  #ytm-custom-wrapper {
+/* ==========================================================================
+   モバイルレイアウト (幅が950px以下)
+   ========================================================================== */
+@media (max-width: 950px) {
+  /* ラッパー: 縦並び & 全体でスクロール */
+  body.ytm-custom-layout #ytm-custom-wrapper {
+    position: fixed; inset: 0; 
     flex-direction: column;
-    padding-top: 80px;
+    justify-content: flex-start; align-items: center;
+    padding: 80px 20px 60px 20px;
+    overflow-y: auto;
+    height: 100vh;
+    gap: 30px;
+    box-sizing: border-box; z-index: 200;
+    scrollbar-width: none;
+    mask-image: linear-gradient(to bottom, black 0%, black 90%, transparent 100%);
+    -webkit-mask-image: linear-gradient(to bottom, black 0%, black 90%, transparent 100%);
   }
-  #ytm-custom-left-col {
+  body.ytm-custom-layout #ytm-custom-wrapper::-webkit-scrollbar { display: none; }
+  
+  /* アートワーク */
+  body.ytm-custom-layout #ytm-custom-left-col {
+    width: 100%; max-width: 400px; height: auto; flex: 0 0 auto;
+    /* ★修正: アートワークコンテナを中央寄せ */
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+  }
+  body.ytm-custom-layout #ytm-artwork-container { width: 280px; max-width: 80vw; }
+  body.ytm-custom-layout #ytm-custom-title { font-size: 28px; }
+  body.ytm-custom-layout #ytm-custom-artist { font-size: 20px; }
+
+  /* 歌詞: 高さは自動、スクロールしない */
+  body.ytm-custom-layout #my-lyrics-container {
     width: 100%;
-    margin-bottom: 20px;
+    height: auto;
+    overflow-y: visible;
+    mask-image: none;
+    padding-bottom: 50px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
   }
-  #ytm-artwork-container {
-    width: 200px;
-    margin-bottom: 20px;
-  }
-  #my-lyrics-container {
-    width: 100%;
-    height: 40vh;
-  }
-  body.ytm-custom-layout ytmusic-player-bar {
-    width: 95% !important;
-    padding: 0 15px !important;
-  }
+  
+  /* 歌詞行のスタイル */
+  body.ytm-custom-layout .lyric-line { font-size: 24px; text-align: center; }
+  body.ytm-custom-layout .lyric-line.active { transform: scale(1.1); }
+  body.ytm-custom-layout .lyric-line.active:hover { transform: scale(1.1); }
+}
+
+/* --- 6. コンテキストメニューの背景修正 --- */
+/* 
+ * プレイヤーバーの背景透過設定が、意図せず右クリックメニューにまで影響してしまう問題への対策。
+ * メニュー関連の要素に、改めて不透明な背景色を強制的に指定する。
+ */
+body.ytm-custom-layout ytmusic-menu-popup-renderer,
+body.ytm-custom-layout tp-yt-iron-dropdown,
+body.ytm-custom-layout .dropdown-content.ytmusic-menu-popup-renderer {
+  background-color: #212121 !important; /* 不透明な濃いグレー */
+  box-shadow: 0 10px 30px rgba(0,0,0,0.5) !important;
+  border: 1px solid rgba(255, 255, 255, 0.1) !important;
+  border-radius: 8px !important;
+  /* z-indexを非常に高く設定し、最前面に表示されることを保証 */
+  z-index: 9999 !important; 
+}
+
+/* メニュー内の各項目の背景は透明のままにする（ホバーエフェクトのため） */
+body.ytm-custom-layout ytmusic-menu-popup-renderer ytmusic-menu-navigation-item-renderer {
+  background-color: transparent !important;
 }

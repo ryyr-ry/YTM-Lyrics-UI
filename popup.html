@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <title>YTM Modern UI Settings</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+
+  <!-- 曲情報表示エリア -->
+  <div id="current-song-info">
+    <img id="artwork" src="placeholder.png" alt="Album Artwork">
+    <div class="info-text">
+      <div id="title" title="No song playing...">No song playing...</div>
+      <div id="artist"></div>
+    </div>
+  </div>
+
+  <!-- 設定項目 -->
+  <div class="settings-panel">
+    <div class="setting-row">
+      <label for="mode-toggle" class="setting-label">Immersive Mode</label>
+      <label class="switch">
+        <input type="checkbox" id="mode-toggle">
+        <span class="slider"></span>
+      </label>
+    </div>
+  </div>
+  
+  <script src="popup.js"></script>
+
+</body>
+</html>

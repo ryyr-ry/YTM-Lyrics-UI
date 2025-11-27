@@ -1,19 +1,39 @@
 {
   "manifest_version": 3,
-  "name": "YouTube Music Modern UI",
-  "version": "1.0.0",
-  "description": "YouTube MusicのUIをモダンな没入型デザインに変更し、同期歌詞を表示します。",
-  "permissions": [],
+  "name": "YouTube Music Modern UI Beta",
+  "version": "0.9.0",
+  "description": "YouTube MusicのUIを変更し、歌詞を同期表示",
+  "permissions": [
+    "storage",
+    "unlimitedStorage"
+  ],
   "host_permissions": [
     "https://music.youtube.com/*",
     "https://lrclib.net/api/*"
   ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "action": {
+    "default_popup": "popup.html"
+  },
+  "icons": {
+    "16": "placeholder.png",
+    "48": "placeholder.png",
+    "128": "placeholder.png"
+  },
   "content_scripts": [
     {
       "matches": ["https://music.youtube.com/*"],
       "js": ["content.js"],
       "css": ["style.css"],
       "run_at": "document_idle"
+    }
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": ["placeholder.png"],
+      "matches": ["<all_urls>"]
     }
   ]
 }
