@@ -107,22 +107,39 @@ body.ytm-custom-layout.ytm-is-desktop-bar ytmusic-player-bar .middle-controls .t
   body.ytm-custom-layout #ytm-custom-title { font-size: clamp(24px, 3vw, 36px); }
   body.ytm-custom-layout #ytm-custom-artist { font-size: clamp(18px, 2vw, 24px); }
 
-  /* 歌詞: 内部でスクロール & 左右をフェード */
+/* 歌詞: 内部でスクロール & 左右をフェード */
   body.ytm-custom-layout #my-lyrics-container {
     flex: 1; display: flex; flex-direction: column; max-width: 650px;
     height: 100%;
     overflow-y: auto;
     overflow-x: hidden !important;
-    mask-image: 
-      linear-gradient(to right, transparent 0%, black 10%, black 90%, transparent 100%),
-      linear-gradient(to bottom, transparent 0%, black 15%, black 85%, transparent 100%);
-    -webkit-mask-image: 
-      linear-gradient(to right, transparent 0%, black 10%, black 90%, transparent 100%),
-      linear-gradient(to bottom, transparent 0%, black 15%, black 85%, transparent 100%);
     padding: 20px 40px;
-    box-sizing: border-box; /* パディングを含めて幅を計算 */
-    scrollbar-width: none; /* Firefox */
+    box-sizing: border-box;
+    scrollbar-width: none;
+    
+    /* --- 修正箇所: マスク設定 --- */
+    /* 縦と横のグラデーションを定義 */
+    mask-image: 
+      linear-gradient(to bottom, transparent 0%, black 15%, black 85%, transparent 100%),
+      linear-gradient(to right, transparent 0%, black 10%, black 90%, transparent 100%);
+    -webkit-mask-image: 
+      linear-gradient(to bottom, transparent 0%, black 15%, black 85%, transparent 100%),
+      linear-gradient(to right, transparent 0%, black 10%, black 90%, transparent 100%);
+      
+    /* ★重要: 複数のマスクが重なる部分だけを表示する設定を追加 */
+    mask-composite: intersect;
+    -webkit-mask-composite: source-in; /* Chrome/Webkit用 (source-in = AND合成) */
+      
+    /* マスクの繰り返しを禁止し、サイズを要素全体に広げる */
+    mask-repeat: no-repeat;
+    -webkit-mask-repeat: no-repeat;
+    mask-size: 100% 100%;
+    -webkit-mask-size: 100% 100%;
+    
+    /* 要素を合成レイヤーに昇格させ、描画を安定させる */
+    transform: translateZ(0);
   }
+  
   body.ytm-custom-layout #my-lyrics-container::-webkit-scrollbar { display: none; }
   
   /* 歌詞行のスタイル */
