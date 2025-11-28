@@ -1,33 +1,66 @@
+<!-- START OF FILE popup.html -->
 <!DOCTYPE html>
-<html lang="ja">
+<html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>YTM Modern UI Settings</title>
+  <title>YTM Modern UI Controller</title>
   <link rel="stylesheet" href="popup.css">
+  <!-- Icons (using simple UTF-8 or images if preferred, here using UTF-8 chars for simplicity) -->
 </head>
 <body>
 
-  <!-- 曲情報表示エリア -->
-  <div id="current-song-info">
-    <img id="artwork" src="placeholder.png" alt="Album Artwork">
-    <div class="info-text">
-      <div id="title" title="No song playing...">No song playing...</div>
-      <div id="artist"></div>
-    </div>
+  <!-- 1. Empty State (No Tabs Found) -->
+  <div id="empty-state" class="empty-state">
+    <div class="icon">🎵</div>
+    <p>No YouTube Music tab found.</p>
+    <p class="sub-text">Open or play music to see controls.</p>
   </div>
 
-  <!-- 設定項目 -->
-  <div class="settings-panel">
-    <div class="setting-row">
-      <label for="mode-toggle" class="setting-label">Immersive Mode</label>
-      <label class="switch">
-        <input type="checkbox" id="mode-toggle">
-        <span class="slider"></span>
-      </label>
+  <!-- 2. Main Player Interface -->
+  <div id="main-container">
+    
+    <!-- Header: Navigation & Status -->
+    <div class="header-row">
+      <span id="status-badge" class="badge">WAITING</span>
+      <div id="page-indicator" class="page-indicator"></div>
     </div>
+
+    <!-- Song Info Area with Carousel Controls -->
+    <div class="player-card">
+      <button id="btn-prev" class="nav-btn" title="Previous Tab">&lt;</button>
+      
+      <div class="song-info">
+        <img id="artwork" src="icons/placeholder.png" alt="Artwork">
+        <div class="text-info">
+          <div id="title" title="Loading...">Loading...</div>
+          <div id="artist"></div>
+        </div>
+      </div>
+
+      <button id="btn-next" class="nav-btn" title="Next Tab">&gt;</button>
+    </div>
+
+    <hr class="divider">
+
+    <!-- Actions Area -->
+    <div class="actions-panel">
+      <!-- Focus Button -->
+      <button id="btn-focus" class="action-btn">
+        <span>Go to Tab ↗</span>
+      </button>
+
+      <!-- Immersive Mode Toggle -->
+      <div class="setting-row">
+        <label for="mode-toggle" class="setting-label">Immersive UI</label>
+        <label class="switch">
+          <input type="checkbox" id="mode-toggle">
+          <span class="slider"></span>
+        </label>
+      </div>
+    </div>
+
   </div>
-  
+
   <script src="popup.js"></script>
-
 </body>
 </html>

@@ -1,19 +1,36 @@
 /**
  * background.js
  * 
- * v5.8 - Parallel Execution
- * - Refactored fetchLyricsHandler to execute API requests in parallel.
- * - Prioritized results: GET(Album) > GET(NoAlbum) > Search(Raw) > Search(Clean).
+ * v6.0 - Centralized State Store
+ * 
+ * Overview:
+ * Acts as the "Source of Truth" for all YouTube Music tabs.
+ * Maintains a real-time store of player states using `chrome.storage.session`
+ * to survive Service Worker idle terminations.
+ * 
+ * Key Features:
+ * - State Store: Maps tabId -> PlayerState.
+ * - Life-cycle Management: Automatically cleans up closed/navigated tabs.
+ * - Reactive Updates: Notifies connected popups immediately upon state changes.
+ * - Lyrics Fetching: Parallel execution strategy (Preserved from v5.8).
  */
 
 const CONFIG = {
+    // API Endpoints
     apiSearchBase: "https://lrclib.net/api/search",
     apiGetBase: "https://lrclib.net/api/get",
+    
+    // Request Headers
     userAgent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
     appName: "YTM-Modern-UI/1.0 (Unofficial Extension)",
+    
+    // Cache Settings
     ttlRevalidate: 30 * 24 * 60 * 60 * 1000,
     ttlExpire: 365 * 24 * 60 * 60 * 1000,
-    storageKeyPrefix: "lyric_"
+    storageKeyPrefix: "lyric_",
+    
+    // Session Store Keys
+    STORE_KEY: "activePlayers"
 };
 
 const SCRIPT_REGEX = {
@@ -21,21 +38,154 @@ const SCRIPT_REGEX = {
     'ko': /[\uAC00-\uD7AF]/, 'zh': /[\u4E00-\u9FFF]/, 'ru': /[\u0400-\u04FF]/,
 };
 
-// --- 初期化 & メッセージング ---
-chrome.runtime.onStartup.addListener(() => { garbageCollectCache(); });
+// --- 1. State Store Management (New) ---
+
+/**
+ * Updates the state for a specific tab in the session storage.
+ * @param {number} tabId 
+ * @param {object} playerData 
+ */
+async function updatePlayerState(tabId, playerData) {
+    try {
+        const store = await getSessionStore();
+        store[tabId] = {
+            ...playerData,
+            lastUpdated: Date.now(),
+            tabId: tabId // Ensure tabId is included in the object
+        };
+        await chrome.storage.session.set({ [CONFIG.STORE_KEY]: store });
+        
+        // Notify any open popups about the change
+        chrome.runtime.sendMessage({ action: 'storeUpdated', store: store }).catch(() => {
+            // No listeners (Popup closed) -> Ignore error
+        });
+    } catch (e) {
+        console.warn("[BG] Update State Failed:", e);
+    }
+}
+
+/**
+ * Removes a tab from the store (e.g., tab closed).
+ * @param {number} tabId 
+ */
+async function removePlayerState(tabId) {
+    try {
+        const store = await getSessionStore();
+        if (store[tabId]) {
+            delete store[tabId];
+            await chrome.storage.session.set({ [CONFIG.STORE_KEY]: store });
+            
+            // Notify popup to remove this card
+            chrome.runtime.sendMessage({ action: 'storeUpdated', store: store }).catch(() => {});
+        }
+    } catch (e) {
+        console.warn("[BG] Remove State Failed:", e);
+    }
+}
+
+/**
+ * Helper to retrieve the current store object.
+ * @returns {Promise<object>}
+ */
+async function getSessionStore() {
+    const result = await chrome.storage.session.get(CONFIG.STORE_KEY);
+    return result[CONFIG.STORE_KEY] || {};
+}
+
+/**
+ * Validates the store against actual open tabs to remove "zombie" entries.
+ * Useful when Service Worker wakes up or Popup opens.
+ */
+async function cleanUpZombies() {
+    const store = await getSessionStore();
+    const storedTabIds = Object.keys(store).map(Number);
+    
+    if (storedTabIds.length === 0) return;
+
+    // Get all actual YTM tabs
+    const tabs = await chrome.tabs.query({ url: "*://music.youtube.com/*" });
+    const actualTabIds = new Set(tabs.map(t => t.id));
+
+    let changed = false;
+    for (const id of storedTabIds) {
+        if (!actualTabIds.has(id)) {
+            delete store[id];
+            changed = true;
+        }
+    }
+
+    if (changed) {
+        await chrome.storage.session.set({ [CONFIG.STORE_KEY]: store });
+    }
+}
+
+// --- 2. Event Listeners (Life-cycle) ---
+
+chrome.runtime.onStartup.addListener(() => {
+    garbageCollectCache();
+    // Clear session store on browser startup
+    chrome.storage.session.remove(CONFIG.STORE_KEY);
+});
+
+// Tab Closed -> Remove from store
+chrome.tabs.onRemoved.addListener((tabId) => {
+    removePlayerState(tabId);
+});
+
+// Tab Navigated/Updated -> Check if it's still YTM, otherwise remove
+chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
+    if (changeInfo.status === 'complete') {
+        if (!tab.url || !tab.url.includes('music.youtube.com')) {
+            removePlayerState(tabId);
+        }
+    }
+});
+
+// Message Handling
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
-    if (request.action === "fetchLyrics") {
+    // A. Content Script reporting state
+    if (request.action === "updateState") {
+        if (sender.tab && sender.tab.id) {
+            updatePlayerState(sender.tab.id, request.data);
+        }
+    }
+    
+    // B. Popup requesting initial data
+    else if (request.action === "getStoreSnapshot") {
+        (async () => {
+            await cleanUpZombies(); // Ensure fresh data
+            const store = await getSessionStore();
+            sendResponse(store);
+        })();
+        return true; // Async response
+    }
+    
+    // C. Popup requesting force sync (Re-hydration)
+    else if (request.action === "broadcastForceSync") {
+        (async () => {
+            const tabs = await chrome.tabs.query({ url: "*://music.youtube.com/*" });
+            tabs.forEach(tab => {
+                chrome.tabs.sendMessage(tab.id, { action: "forceSync" }).catch(() => {});
+            });
+            sendResponse({ status: "broadcasted" });
+        })();
+        return true;
+    }
+
+    // D. Lyrics Fetching (Existing)
+    else if (request.action === "fetchLyrics") {
         handleLyricsRequest(request)
             .then(data => sendResponse({ success: true, data: data }))
             .catch(err => {
-                console.error("[BG] Error:", err);
+                console.error("[BG] Lyrics Error:", err);
                 sendResponse({ success: false, error: err.message });
             });
         return true; 
     }
 });
 
-// --- キャッシュロジック ---
+// --- 3. Lyrics Logic (Preserved from v5.8) ---
+
 function getCacheKey(title, artist) { return CONFIG.storageKeyPrefix + normalize(title) + "_" + normalize(artist); }
 async function garbageCollectCache() { try { const allData = await chrome.storage.local.get(null); const now = Date.now(); const keysToRemove = []; for (const [key, value] of Object.entries(allData)) { if (key.startsWith(CONFIG.storageKeyPrefix)) { const lastTime = value.lastAccessed || value.createdAt || now; if (now - lastTime > CONFIG.ttlExpire) keysToRemove.push(key); } } if (keysToRemove.length > 0) await chrome.storage.local.remove(keysToRemove); } catch (e) { console.warn("[Cache] GC failed:", e); } }
 async function handleLyricsRequest({ title, artist, album, lang, duration }) {
@@ -72,8 +222,6 @@ async function fetchAndCache(title, artist, album, lang, duration) {
     }
     return lyrics;
 }
-
-// --- ユーティリティ & スコアリング ---
 
 function sanitize(text) {
     if (!text) return "";
@@ -151,14 +299,6 @@ function calculateScore(item, qTitle, qArtist, userLang, targetDuration) {
     return score;
 }
 
-// --- 歌詞取得ロジック (通信部) ---
-async function logResponse(response, label) {
-    // デバッグが必要な場合はコメントアウトを解除
-    // const cloned = response.clone();
-    // console.log(`[BG][${label}] Status: ${cloned.status}`);
-    return response;
-}
-
 async function tryApiGet(track_name, artist_name, album_name, duration, includeAlbum) {
     if (!track_name || !artist_name || !duration) return null;
     try {
@@ -172,14 +312,12 @@ async function tryApiGet(track_name, artist_name, album_name, duration, includeA
         }
         const url = `${CONFIG.apiGetBase}?${params.toString()}`;
         let res = await fetch(url, { headers: { 'User-Agent': CONFIG.userAgent, 'Lrclib-Client': CONFIG.appName } });
-        // res = await logResponse(res, `GET:Album=${includeAlbum}`);
         if (res.status === 200) {
             const data = await res.json();
             return parseLRC(data.syncedLyrics);
         }
         return null;
     } catch (e) {
-        console.warn(`[BG] API GET request failed (album: ${includeAlbum}):`, e);
         return null;
     }
 }
@@ -191,7 +329,6 @@ async function tryApiSearch(title, artist, album, lang, duration) {
         const url = `${CONFIG.apiSearchBase}?${params.toString()}`;
         
         let res = await fetch(url, { headers: { 'User-Agent': CONFIG.userAgent, 'Lrclib-Client': CONFIG.appName } });
-        // res = await logResponse(res, "SEARCH");
         if (!res.ok) throw new Error(`Status: ${res.status}`);
 
         const data = await res.json();
@@ -212,40 +349,21 @@ async function tryApiSearch(title, artist, album, lang, duration) {
         }
         return null;
     } catch (e) { 
-        console.warn("[BG] API Search request failed:", e);
         return null;
     }
 }
 
-/**
- * 歌詞取得のメインハンドラ (並列処理版)
- */
 async function fetchLyricsHandler(title, artist, album, lang, duration) {
     const sTitle = sanitize(title);
     const sArtist = sanitize(artist);
     const sAlbum = sanitize(album);
 
-    // 実行するタスクリストを優先度順に作成
     const tasks = [
-        // Priority 1: アルバム名込みの厳密なGET (最も精度が高い)
-        { 
-            fn: () => tryApiGet(sTitle, sArtist, sAlbum, duration, true),
-            name: "GET_WITH_ALBUM" 
-        },
-        // Priority 2: アルバム名なしの厳密なGET (曲・アーティストは合っている)
-        { 
-            fn: () => tryApiGet(sTitle, sArtist, sAlbum, duration, false),
-            name: "GET_NO_ALBUM"
-        },
-        // Priority 3: 標準メタデータでの検索 (表記ゆれに対応)
-        { 
-            fn: () => tryApiSearch(sTitle, sArtist, sAlbum, lang, duration),
-            name: "SEARCH_RAW"
-        }
+        { fn: () => tryApiGet(sTitle, sArtist, sAlbum, duration, true), name: "GET_WITH_ALBUM" },
+        { fn: () => tryApiGet(sTitle, sArtist, sAlbum, duration, false), name: "GET_NO_ALBUM" },
+        { fn: () => tryApiSearch(sTitle, sArtist, sAlbum, lang, duration), name: "SEARCH_RAW" }
     ];
 
-    // Priority 4: クリーンアップ後のテキストでの検索 (ノイズ除去)
-    // 元のタイトル/アーティストと変わる場合のみ追加
     const cTitle = cleanText(title);
     const cArtist = cleanText(artist);
     if (cTitle !== title || cArtist !== artist) {
@@ -255,17 +373,12 @@ async function fetchLyricsHandler(title, artist, album, lang, duration) {
         });
     }
 
-    // 全タスクを並列実行
-    // Promise.allSettled は全てのPromiseが完了(成功or失敗)するまで待つ
-    // これにより、最も遅いリクエストに時間は合わせられるが、各リクエストは同時に走る
     const promises = tasks.map(t => t.fn());
     const results = await Promise.allSettled(promises);
 
-    // 結果を「優先度順」に走査して、最初に成功(null以外)したものを採用する
     for (let i = 0; i < results.length; i++) {
         const result = results[i];
         if (result.status === 'fulfilled' && result.value) {
-            // console.log(`[BG] Selected Strategy: ${tasks[i].name}`); // デバッグ用
             return result.value;
         }
     }
